@@ -139,7 +139,7 @@ messageEmitter.on('message', async (message: TestWorkerIncomingMessage) => {
 
         const tracker = new TestStateTracker(agent);
 
-        tracker.events.on('stateChanged', (state) => {
+        tracker.events.on('stateChanged', (state: TestState) => {
             postToParent({
                 type: 'test_state_change',
                 testId: testId,

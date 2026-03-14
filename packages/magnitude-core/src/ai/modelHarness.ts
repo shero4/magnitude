@@ -17,6 +17,7 @@ import { convertActionDefinitionsToBaml, convertZodToBaml } from "@/actions/util
 import { Image } from '@/memory/image';
 import EventEmitter from "eventemitter3";
 import { MultiMediaContentPart } from "@/memory/rendering";
+import { extractTraceFromCollector, writeTrace } from "./traceLogger";
 
 interface ModelHarnessOptions {
     llm: LLMClient;
@@ -185,8 +186,6 @@ export class ModelHarness {
         tb.PartialRecipe.addProperty('actions', tb.list(convertActionDefinitionsToBaml(tb, actionVocabulary))).description('Always provide at least one action');
 
         const start = Date.now();
-        // Assuming this.baml.CreatePartialRecipe is now typed to accept ModularMemoryContext
-        // after BAML generation picked up changes in planner.baml
         const response = await this.baml.CreatePartialRecipe( 
             context,
             task,
@@ -194,13 +193,20 @@ export class ModelHarness {
             this.options.llm.provider === 'claude-code',
             { tb }
         );
-        this.logger.trace(`createPartialRecipe took ${Date.now()-start}ms`);
-        // BAML does not carry over action type to @@dynamic of PartialRecipe, so forced cast necssary
-        //return response as unknown as { actions: z.infer<ActionDefinition<T>['schema']>[] };//, finished: boolean };
+        const durationMs = Date.now() - start;
+        this.logger.trace(`createPartialRecipe took ${durationMs}ms`);
+
+        const trace = extractTraceFromCollector(this.collector, 'CreatePartialRecipe', durationMs, {
+            reasoning: response.reasoning,
+            actions: response.actions,
+        });
+        trace.request.messages.unshift({ role: '_meta', content: `task: ${task}` });
+        writeTrace(trace);
+
         this._reportUsage();
         return {
-            reasoning: response.reasoning,//(response.observations ? response.observations + " " : "") + response.meta_reasoning + " " + response.reasoning,
-            actions: response.actions// as z.infer<ActionDefinition<T>['schema']>[]
+            reasoning: response.reasoning,
+            actions: response.actions
         }
     }
 
@@ -220,6 +226,7 @@ export class ModelHarness {
 
         // }
 
+        const extractStart = Date.now();
         const resp = await this.baml.ExtractData(
             instructions,
             await screenshot.toBaml(),
@@ -227,6 +234,12 @@ export class ModelHarness {
             this.options.llm.provider === 'claude-code',
             { tb }
         );
+        const extractDuration = Date.now() - extractStart;
+
+        const extractTrace = extractTraceFromCollector(this.collector, 'ExtractData', extractDuration, resp);
+        extractTrace.request.messages.unshift({ role: '_meta', content: `instructions: ${instructions}` });
+        writeTrace(extractTrace);
+
         this._reportUsage();
 
         if (schema instanceof z.ZodObject) {
@@ -250,12 +263,19 @@ export class ModelHarness {
             tb.QueryResponse.addProperty('data', convertZodToBaml(tb, schema));
         }
 
+        const queryStart = Date.now();
         const resp = await this.baml.QueryMemory(
             context,
             query,
             this.options.llm.provider === 'claude-code',
             { tb }
         );
+        const queryDuration = Date.now() - queryStart;
+
+        const queryTrace = extractTraceFromCollector(this.collector, 'QueryMemory', queryDuration, resp);
+        queryTrace.request.messages.unshift({ role: '_meta', content: `query: ${query}` });
+        writeTrace(queryTrace);
+
         this._reportUsage();
         
         if (schema instanceof z.ZodObject) {

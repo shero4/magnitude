@@ -238,7 +238,7 @@ program
             const overallSuccess = await testSuiteRunner.runTests();
             process.exit(overallSuccess ? 0 : 1);
         } catch (error) {
-            logger.error("Test suite execution failed:", error);
+            logger.error({ err: error }, "Test suite execution failed");
             process.exit(1);
         }
     });

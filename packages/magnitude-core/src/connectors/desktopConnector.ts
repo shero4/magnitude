@@ -118,7 +118,7 @@ export class DesktopConnector implements AgentConnector {
                     )
                 );
             } catch (error) {
-                this.logger.warn('Failed to get window information', error);
+                this.logger.warn({ err: error }, 'Failed to get window information');
             }
         }
         
